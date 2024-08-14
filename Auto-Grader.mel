@@ -1,0 +1,209 @@
+//AutoGrader created by Alfredo Fonseca Siqueiros
+//This script does some simple checks on 3D models commonly done in beginner 3D modeling classes
+//This script is intended to help grade assignments faster. Please email me if there are any concerns or suggestions
+//alfredo.fonseca.siqueiros@gmail.com
+//https://nineteenfrog.github.io/
+
+//Global variables
+global string $checkBoxes[];
+global string $resultDisplay;
+
+//Checks the history of selected object
+//RETURN: integer representing points deducted
+proc int checkHistory(){
+    $l = `ls -selection`;
+    $objName = $l[0];
+    $history = listHistory($objName);
+    if(size($history) > 1){
+        return 10;
+    }
+    return 0;
+}
+
+//Checks if a layer was created for reference images
+//RETURN: integer representing points deducted
+proc int checkRefLayer(){
+    $l = `ls -selection`;
+    $objName = $l[0];
+    $layerMembers = `editDisplayLayerMembers -q defaultLayer`; //grab all objects in the default layer
+    $isInDefLay = false;
+    for($obj in $layerMembers){  //checks if the item selected is a member of the default layer
+        if($obj == $objName){
+            $isInDefLay = true;
+        }
+    }
+    if($isInDefLay){
+        return 10;
+    }
+    return 0;
+    
+    //objectLayer works in modern versions of Maya but not in Maya LT
+    //this is because in Maya LT 20' it doesn't return a string
+    //I will be using a workaround for now...
+    /*
+    return `objectLayer objName`;
+    */
+}
+
+//Checks if the triangle count is less than 5000
+//RETURN: integer representing points deducted
+proc int checkPolyCount(){
+    $l = `ls -selection`;
+    $objName = $l[0];
+    $polyCount = `polyEvaluate -t`;
+    //TODO: add a field so the user can set a numeric limit
+    if($polyCount[0] > 5000){
+        return 15;
+    }
+    return 0;
+}
+
+//Checks if the model has any n-gons present
+//RETURN: integer representing points deducted
+proc int checkNGons(){
+    //uses the same command from when you select Mesh->Cleanup
+    polyCleanupArgList 4 { "0","2","1","0","1","0","0","0","0","1e-05","0","1e-05","0","1e-05","0","-1","0","0" };
+    $l = `ls -selection`;
+    $objName = $l[0];
+    if(size($l) > 0){
+        return 15;
+    }
+    return 0;
+}
+
+//Checks if the transforms are frozen
+//RETURN: integer representing points deducted
+proc int checkTransFrz(){
+    $l = `ls -selection`;
+    $objName = $l[0];
+    $mat = `xform -q -matrix $objName`; //grabs the transform matrix of the object
+    $imat = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}; //compares it to the identity matrix
+    $frz = true;
+    for($i = 0; $i < 16; $i++){
+        if($mat[$i] != $imat[$i]){
+            $frz = false;
+        }
+    }
+    if($frz){
+        return 0;  
+    }
+    return 10;  
+}
+
+//used to select or deselect all the checkboxes in the UI
+//RETURN: N/A
+proc checkAll(int $value){
+    global string $checkBoxes[];
+    for($i in $checkBoxes){
+        checkBox -e -v $value $i;
+    }
+}
+
+//Main function that runs all the individual checks on the model based on what the user selected on the checkboxes
+//RETURN: N/A
+proc grade(){
+    print("Grading...\n");
+    global string $checkBoxes[];
+    global string $resultDisplay;
+    int $deductions = 0;
+    string $finalGrade = "Deductions:\n";
+    
+    //Code below checks the checkboxes' value and does the appropriate check if the value is 'true'
+    //Then it adds the appropriate deductions and adds the proper text to the string that will display the end result
+    if(`checkBox -q -v $checkBoxes[0]`){
+        $score = checkHistory();
+        $deductions += $score;
+        if($score > 0){
+            $finalGrade += "-10 History not deleted.\n";
+        }
+    }
+    
+    if(`checkBox -q -v $checkBoxes[1]`){
+        $score = checkRefLayer();
+        $deductions += $score;
+        if($score > 0){
+            $finalGrade += "-10 Reference layer not created.\n";
+        }
+    }
+    
+    if(`checkBox -q -v $checkBoxes[2]`){
+        $score = checkPolyCount();
+        $deductions += $score;
+        if($score > 0){
+            $finalGrade += "-15 Exceeds polygon limit.\n";
+        }
+    }
+    
+    if(`checkBox -q -v $checkBoxes[3]`){
+        $score = checkTransFrz();
+        $deductions += $score;
+        if($score > 0){
+            $finalGrade += "-10 Transforms not frozen.\n";
+        }
+    }
+    
+    if(`checkBox -q -v $checkBoxes[4]`){
+        $score = checkNGons();
+        $deductions += $score;
+        if($score > 0){
+            $finalGrade += "-15 N-gons present.\n";
+        }
+    }    
+    
+    if($deductions == 0){
+        $finalGrade += "None\n";
+    }
+    
+    //calculate final score and add it to the display string
+    $finalScore = 100 - $deductions;
+    $finalGrade += "Final score: " + $finalScore + "\n";
+    
+    //update label in UI
+    text -e -label $finalGrade $resultDisplay;
+    print($finalGrade);
+};
+
+//Function used to build the UI and controls when the script runs
+//RETURN: N/A
+proc buildUI(){
+    global string $checkBoxes[];
+    global string $resultDisplay;
+    
+    columnLayout -adjustableColumn true;
+    
+    text -label "AutoGrader" -font "boldLabelFont" -bgc 0.5 0.5 0.5;
+    separator -height 50;
+    
+    text -label "Settings";
+    $allChkBx = `checkBox -label "Select All" -v true -onc "checkAll(1)" -ofc "checkAll(0)"`;
+    $checkBoxes[0] = `checkBox -label "Check History" -v true`;
+    $checkBoxes[1] = `checkBox -label "Check Reference Layer" -v true`;
+    $checkBoxes[2] = `checkBox -label "Check PolyCount" -v true`;
+    $checkBoxes[3] = `checkBox -label "Check Transforms" -v true`;
+    $checkBoxes[4] = `checkBox -label "Check N-gons" -v true`;
+    separator -height 50;
+    
+    text -label "Results";
+    $resultDisplay = `text -label "\n\n\n\n\n" -bgc 0.1 0.1 0.1 -al "left" -font "fixedWidthFont"`;
+    
+    button -label "Check" -command "grade()";
+    
+    setParent ..;
+}
+
+//Creates the main window
+//RETURN: N/A
+proc createWindow(){
+    //if the script is already running it deletes the previous instance
+    if(`window -exists autoGrader`){
+        deleteUI autoGrader;
+    }
+    window -title "Auto-Grader"
+           -widthHeight 300 300
+           -visible true
+           autoGrader;
+                
+    buildUI();
+}
+
+createWindow();
